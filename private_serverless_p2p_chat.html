@@ -2,436 +2,122 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>PrivP2P - Serverless Local Chat</title>
-  <!-- React & Tailwind CSS Dependencies -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <!-- QR Code Generator -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GuruRaayaraAashirvadha Private Chat</title>
   <style>
-    body {
-      background-color: #0f172a;
-      color: #f8fafc;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      touch-action: manipulation;
-    }
-    .custom-scrollbar::-webkit-scrollbar {
-      width: 4px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #334155;
-      border-radius: 4px;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #0f172a; color: #f8fafc; display: flex; flex-direction: column; height: 100vh; }
+    header { background-color: #1e293b; padding: 16px; text-align: center; border-bottom: 1px solid #334155; }
+    header h1 { font-size: 1.2rem; color: #38bdf8; }
+    .status { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
+    #chat-container { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .message { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.4; word-break: break-word; }
+    .sent { background-color: #0284c7; color: #fff; align-self: flex-end; border-bottom-right-radius: 2px; }
+    .received { background-color: #334155; color: #f8fafc; align-self: flex-start; border-bottom-left-radius: 2px; }
+    .setup-box { background-color: #1e293b; margin: 16px; padding: 16px; border-radius: 8px; border: 1px solid #334155; }
+    textarea { width: 100%; height: 80px; background: #0f172a; color: #f8fafc; border: 1px solid #475569; padding: 8px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 10px; resize: none; }
+    button { width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-bottom: 8px; }
+    button:active { background: #0369a1; }
+    .input-area { padding: 12px; background: #1e293b; display: flex; gap: 8px; border-top: 1px solid #334155; }
+    .input-area input { flex: 1; padding: 12px; background: #0f172a; color: white; border: 1px solid #475569; border-radius: 6px; outline: none; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div id="root"></div>
 
-  <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+  <header>
+    <h1>GuruRaayaraAashirvadha</h1>
+    <div id="status" class="status">Status: Offline (Direct P2P)</div>
+  </header>
 
-    // LocalStorage helper for zero-server persistent offline storage
-    const STORAGE_KEY_MESSAGES = "privp2p_messages_v1";
-    const STORAGE_KEY_SETTINGS = "privp2p_settings_v1";
+  <div id="setup-panel" class="setup-box">
+    <h3>Connect Devices</h3>
+    <p style="font-size:0.8rem; color:#94a3b8; margin: 8px 0 12px 0;">1. Click "Create Invite" on Phone A and copy code.<br>2. Paste code into Phone B and click "Accept Invite".<br>3. Copy Phone B's answer code back to Phone A.</p>
+    <button onclick="createOffer()">1. Create Invite Code (Phone A)</button>
+    <button onclick="acceptOffer()">2. Accept Invite Code (Phone B)</button>
+    <textarea id="sdp-data" placeholder="Paste connection code here..."></textarea>
+    <button onclick="completeConnection()" style="background:#16a34a;">3. Complete Connection (Phone A)</button>
+  </div>
 
-    function App() {
-      const [messages, setMessages] = useState([]);
-      const [inputText, setInputText] = useState("");
-      const [isConnected, setIsConnected] = useState(false);
-      const [peerRole, setPeerRole] = useState(null); // 'host' or 'joiner'
-      const [activeTab, setActiveTab] = useState("chat"); // 'chat', 'pair', 'backup', 'setup'
-      const [offerSdp, setOfferSdp] = useState("");
-      const [answerSdp, setAnswerSdp] = useState("");
-      const [manualPayload, setManualPayload] = useState("");
-      const [myId, setMyId] = useState("");
-      const [partnerId, setPartnerId] = useState("");
-      const [passphrase, setPassphrase] = useState("husband-wife-secret-key-2026");
-      const [isSimulated, setIsSimulated] = useState(true);
+  <div id="chat-container"></div>
 
-      const chatEndRef = useRef(null);
-      const qrCanvasRef = useRef(null);
+  <div id="input-panel" class="input-area hidden">
+    <input type="text" id="msg-input" placeholder="Type a private message..." onkeypress="if(event.key==='Enter') sendMessage()" />
+    <button onclick="sendMessage()" style="width: auto; margin:0; padding: 0 16px;">Send</button>
+  </div>
 
-      // Load saved messages on boot
-      useEffect(() => {
-        const saved = localStorage.getItem(STORAGE_KEY_MESSAGES);
-        if (saved) {
-          try {
-            setMessages(JSON.parse(saved));
-          } catch (e) {
-            console.error("Failed to parse local history", e);
-          }
-        } else {
-          // Default initial welcome message
-          const initialMsgs = [
-            {
-              id: "init-1",
-              sender: "System",
-              text: "Welcome to PrivP2P. All messages are stored 100% locally on this device. No servers involved.",
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isSystem: true
-            }
-          ];
-          setMessages(initialMsgs);
-          localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(initialMsgs));
-        }
+  <script>
+    let pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    let dc;
 
-        // Generate local device peer identifier
-        const randomId = "Peer-" + Math.floor(1000 + Math.random() * 9000);
-        setMyId(randomId);
-      }, []);
+    pc.onicecandidate = e => {
+      if (!e.candidate) {
+        document.getElementById('sdp-data').value = JSON.stringify(pc.localDescription);
+      }
+    };
 
-      // Auto-scroll chat to bottom
-      useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, [messages, activeTab]);
+    pc.ondatachannel = e => {
+      dc = e.channel;
+      setupDataChannel();
+    };
 
-      // Save messages whenever they change
-      const saveMessagesToLocal = (newMsgs) => {
-        setMessages(newMsgs);
-        localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(newMsgs));
-      };
-
-      // Send a message
-      const handleSendMessage = (e) => {
-        e?.preventDefault();
-        if (!inputText.trim()) return;
-
-        const newMsg = {
-          id: Date.now().toString(),
-          sender: "Me",
-          text: inputText,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          status: isConnected ? "delivered" : "saved_offline"
-        };
-
-        const updated = [...messages, newMsg];
-        saveMessagesToLocal(updated);
-        setInputText("");
-
-        // Simulated P2P response when in demo mode
-        if (isSimulated && isConnected) {
-          setTimeout(() => {
-            const replyMsg = {
-              id: (Date.now() + 1).toString(),
-              sender: partnerId || "Partner",
-              text: getSimulatedResponse(inputText),
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              status: "received"
-            };
-            saveMessagesToLocal([...updated, replyMsg]);
-          }, 1200);
-        }
-      };
-
-      // Simple response logic for local demo test
-      const getSimulatedResponse = (input) => {
-        const lower = input.toLowerCase();
-        if (lower.includes("hello") || lower.includes("hi")) return "Hey! Received your direct message over local network!";
-        if (lower.includes("where are you")) return "Just in the living room! Connection is super fast without internet.";
-        if (lower.includes("love")) return "Love you too! Glad our messages are totally private.";
-        return "Received encrypted: \"" + input + "\"";
-      };
-
-      // Render QR Code for WebRTC Exchange
-      useEffect(() => {
-        if (activeTab === "pair" && qrCanvasRef.current && offerSdp) {
-          new QRious({
-            element: qrCanvasRef.current,
-            value: offerSdp,
-            size: 200,
-            background: '#1e293b',
-            foreground: '#38bdf8'
-          });
-        }
-      }, [activeTab, offerSdp]);
-
-      // Start Host Pairing
-      const startHostPairing = () => {
-        setPeerRole("host");
-        const fakeSdp = JSON.stringify({
-          type: "offer",
-          id: myId,
-          key: Math.random().toString(36).substring(2, 10),
-          ts: Date.now()
-        });
-        setOfferSdp(fakeSdp);
-      };
-
-      // Complete Manual/QR pairing
-      const completePairing = () => {
-        if (!manualPayload.trim()) return;
-        try {
-          const parsed = JSON.parse(manualPayload);
-          setPartnerId(parsed.id || "Partner");
-          setIsConnected(true);
-          setActiveTab("chat");
-          
-          const systemNotice = {
-            id: Date.now().toString(),
-            sender: "System",
-            text: `Direct P2P Link Established with ${parsed.id || 'Partner'}. End-to-end active.`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            isSystem: true
-          };
-          saveMessagesToLocal([...messages, systemNotice]);
-        } catch (err) {
-          alert("Invalid pairing payload code. Please copy/paste the exact connection payload.");
-        }
-      };
-
-      // Export Encrypted Backup
-      const exportBackup = () => {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(messages, null, 2));
-        const downloadAnchor = document.createElement('a');
-        downloadAnchor.setAttribute("href", dataStr);
-        downloadAnchor.setAttribute("download", `privp2p_backup_${new Date().toISOString().slice(0,10)}.json`);
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-        downloadAnchor.remove();
-      };
-
-      // Clear local history
-      const clearHistory = () => {
-        if (confirm("Are you sure you want to erase all local chat history on this device?")) {
-          setMessages([]);
-          localStorage.removeItem(STORAGE_KEY_MESSAGES);
-        }
-      };
-
-      return (
-        <div className="flex flex-col h-screen max-w-md mx-auto bg-slate-900 shadow-2xl border-x border-slate-800">
-          
-          {/* Header */}
-          <header className="px-4 py-3 bg-slate-800/80 backdrop-blur border-b border-slate-700/60 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-white shadow-md">
-                  P2P
-                </div>
-                <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 ${isConnected ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-              </div>
-              <div>
-                <h1 className="font-semibold text-sm leading-tight text-slate-100">Direct Local Chat</h1>
-                <p className="text-xs text-slate-400">
-                  {isConnected ? `Connected to ${partnerId || 'Partner'}` : 'Offline / Standalone'}
-                </p>
-              </div>
-            </div>
-
-            {/* Navigation Icons */}
-            <div className="flex items-center space-x-1">
-              <button 
-                onClick={() => setActiveTab("chat")} 
-                className={`p-2 rounded-lg transition ${activeTab === "chat" ? 'bg-slate-700 text-indigo-400' : 'text-slate-400 hover:text-slate-200'}`}
-                title="Chat"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
-              </button>
-              <button 
-                onClick={() => setActiveTab("pair")} 
-                className={`p-2 rounded-lg transition ${activeTab === "pair" ? 'bg-slate-700 text-indigo-400' : 'text-slate-400 hover:text-slate-200'}`}
-                title="Pairing / Connection"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-              </button>
-              <button 
-                onClick={() => setActiveTab("setup")} 
-                className={`p-2 rounded-lg transition ${activeTab === "setup" ? 'bg-slate-700 text-indigo-400' : 'text-slate-400 hover:text-slate-200'}`}
-                title="Source Code & Setup Instructions"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
-              </button>
-            </div>
-          </header>
-
-          {/* TAB 1: Main Chat View */}
-          {activeTab === "chat" && (
-            <div className="flex-1 flex flex-col justify-between overflow-hidden bg-slate-950">
-              
-              {/* Message List */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                {messages.map((msg) => (
-                  <div key={msg.id} className={`flex flex-col ${msg.isSystem ? 'items-center my-2' : msg.sender === 'Me' ? 'items-end' : 'items-start'}`}>
-                    {msg.isSystem ? (
-                      <span className="text-[11px] bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700/50">
-                        {msg.text}
-                      </span>
-                    ) : (
-                      <div className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm shadow-md ${
-                        msg.sender === 'Me' 
-                          ? 'bg-indigo-600 text-white rounded-br-none' 
-                          : 'bg-slate-800 text-slate-100 rounded-bl-none border border-slate-700/60'
-                      }`}>
-                        <p className="break-words">{msg.text}</p>
-                        <div className={`text-[10px] mt-1 flex items-center justify-end space-x-1 ${msg.sender === 'Me' ? 'text-indigo-200' : 'text-slate-400'}`}>
-                          <span>{msg.timestamp}</span>
-                          {msg.sender === 'Me' && <span>• {msg.status}</span>}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                <div ref={chatEndRef} />
-              </div>
-
-              {/* Message Input Box */}
-              <form onSubmit={handleSendMessage} className="p-3 bg-slate-900 border-t border-slate-800 flex items-center space-x-2">
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  placeholder="Type direct encrypted message..."
-                  className="flex-1 bg-slate-800 text-slate-100 placeholder-slate-500 text-sm rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-700/50"
-                />
-                <button
-                  type="submit"
-                  disabled={!inputText.trim()}
-                  className="bg-indigo-600 disabled:opacity-50 hover:bg-indigo-500 text-white p-3 rounded-xl transition shadow-lg flex items-center justify-center"
-                >
-                  <svg className="w-5 h-5 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* TAB 2: Pairing & Connection Options */}
-          {activeTab === "pair" && (
-            <div className="flex-1 overflow-y-auto p-5 space-y-6 bg-slate-900 custom-scrollbar">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-100">Serverless Local Pairing</h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Connect both devices over local Wi-Fi / Hotspot without external servers using WebRTC payload exchange.
-                </p>
-              </div>
-
-              {/* Mode Toggle */}
-              <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 space-y-3">
-                <label className="text-xs font-semibold uppercase text-indigo-400 tracking-wider">Demo / Testing Mode</label>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-200">Simulate P2P Peer Locally</span>
-                  <input 
-                    type="checkbox" 
-                    checked={isConnected} 
-                    onChange={(e) => {
-                      setIsConnected(e.target.checked);
-                      if (e.target.checked && !partnerId) setPartnerId("Wife's Mobile");
-                    }}
-                    className="w-5 h-5 accent-indigo-600 rounded cursor-pointer" 
-                  />
-                </div>
-              </div>
-
-              {/* Step 1: Host Code */}
-              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/60 space-y-3">
-                <h3 className="text-sm font-medium text-slate-200">Step 1: Generate Device Connection Key</h3>
-                {!offerSdp ? (
-                  <button 
-                    onClick={startHostPairing}
-                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold py-2.5 rounded-lg transition"
-                  >
-                    Generate Local Offer QR / Code
-                  </button>
-                ) : (
-                  <div className="space-y-3 text-center">
-                    <div className="flex justify-center bg-slate-800 p-3 rounded-lg border border-slate-700">
-                      <canvas ref={qrCanvasRef}></canvas>
-                    </div>
-                    <textarea 
-                      readOnly 
-                      value={offerSdp} 
-                      className="w-full text-[10px] bg-slate-950 text-slate-300 p-2 rounded border border-slate-800 h-16 font-mono"
-                    />
-                    <button 
-                      onClick={() => navigator.clipboard.writeText(offerSdp)}
-                      className="text-xs text-indigo-400 hover:underline"
-                    >
-                      Copy Connection Payload
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Step 2: Answer Input */}
-              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/60 space-y-3">
-                <h3 className="text-sm font-medium text-slate-200">Step 2: Paste Partner Payload</h3>
-                <textarea 
-                  value={manualPayload}
-                  onChange={(e) => setManualPayload(e.target.value)}
-                  placeholder="Paste payload from other device here..."
-                  className="w-full text-xs bg-slate-950 text-slate-200 p-3 rounded-lg border border-slate-800 h-20 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                />
-                <button 
-                  onClick={completePairing}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2.5 rounded-lg transition"
-                >
-                  Establish Direct P2P Link
-                </button>
-              </div>
-
-              {/* Backup & Erase */}
-              <div className="pt-4 border-t border-slate-800 space-y-2">
-                <button 
-                  onClick={exportBackup}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2.5 rounded-lg transition border border-slate-700 flex items-center justify-center space-x-2"
-                >
-                  <span>Export Encrypted Backup JSON</span>
-                </button>
-                <button 
-                  onClick={clearHistory}
-                  className="w-full bg-red-950/40 hover:bg-red-900/60 text-red-400 text-xs py-2.5 rounded-lg transition border border-red-900/50"
-                >
-                  Erase Device Chat Data
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: Complete Mobile App Source Code Guide */}
-          {activeTab === "setup" && (
-            <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-900 custom-scrollbar text-xs">
-              <div>
-                <h2 className="text-base font-bold text-slate-100">Native App Source Setup</h2>
-                <p className="text-slate-400 mt-1">
-                  Follow these exact steps to compile this zero-server P2P chat into stand-alone APK (Android) and IPA (iOS) apps.
-                </p>
-              </div>
-
-              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2 font-mono text-[11px] text-indigo-300">
-                <p className="text-slate-400">// 1. Initialize React Native Expo App</p>
-                <p>npx create-expo-app LocalP2PChat -t bare-minimum</p>
-                <p>cd LocalP2PChat</p>
-                <p className="text-slate-400">// 2. Install WebRTC & Storage</p>
-                <p>npm install react-native-webrtc @react-native-async-storage/async-storage react-native-qrcode-svg</p>
-              </div>
-
-              <div className="space-y-3 text-slate-300">
-                <h3 className="font-semibold text-slate-100 text-sm">Key Architecture Principles:</h3>
-                <ul className="list-disc pl-4 space-y-1.5 text-slate-400">
-                  <li><strong className="text-slate-200">Zero Third-Party Servers:</strong> ICE candidate discovery is conducted purely locally over Wi-Fi / Hotspot IP addresses (`RTCPeerConnection`).</li>
-                  <li><strong className="text-slate-200">Cross-Platform Sync:</strong> Direct communication between iOS (Swift WebRTC wrapper) and Android (Java WebRTC wrapper).</li>
-                  <li><strong className="text-slate-200">Local Security:</strong> Cryptographic keys generated via `window.crypto.subtle` (AES-GCM 256-bit).</li>
-                </ul>
-              </div>
-
-              <div className="bg-slate-800/60 p-3.5 rounded-lg border border-slate-700">
-                <span className="text-emerald-400 font-semibold block mb-1">iOS Deployment Tip:</span>
-                <p className="text-slate-300 text-[11px]">
-                  Add <code className="bg-slate-900 px-1 py-0.5 rounded text-amber-300">NSLocalNetworkUsageDescription</code> to your iOS <code className="text-amber-300">Info.plist</code> so iOS allows device-to-device local socket pairing.
-                </p>
-              </div>
-            </div>
-          )}
-
-        </div>
-      );
+    async function createOffer() {
+      dc = pc.createDataChannel("chat");
+      setupDataChannel();
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    async function acceptOffer() {
+      const offer = JSON.parse(document.getElementById('sdp-data').value);
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+    }
+
+    async function completeConnection() {
+      const answer = JSON.parse(document.getElementById('sdp-data').value);
+      await pc.setRemoteDescription(answer);
+    }
+
+    function setupDataChannel() {
+      dc.onopen = () => {
+        document.getElementById('status').innerText = "Status: Connected (Direct P2P)";
+        document.getElementById('status').style.color = "#4ade80";
+        document.getElementById('setup-panel').classList.add('hidden');
+        document.getElementById('input-panel').classList.remove('hidden');
+        loadHistory();
+      };
+      dc.onmessage = e => renderMessage(e.data, 'received');
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('msg-input');
+      const text = input.value.trim();
+      if (!text || !dc) return;
+      dc.send(text);
+      renderMessage(text, 'sent');
+      input.value = '';
+    }
+
+    function renderMessage(text, type) {
+      const container = document.getElementById('chat-container');
+      const msg = document.createElement('div');
+      msg.className = `message ${type}`;
+      msg.innerText = text;
+      container.appendChild(msg);
+      container.scrollTop = container.scrollHeight;
+
+      // Save locally to localStorage
+      const history = JSON.parse(localStorage.getItem('p2p_chat') || '[]');
+      history.push({ text, type, time: new Date() });
+      localStorage.setItem('p2p_chat', JSON.stringify(history));
+    }
+
+    function loadHistory() {
+      const history = JSON.parse(localStorage.getItem('p2p_chat') || '[]');
+      history.forEach(m => renderMessage(m.text, m.type));
+    }
   </script>
 </body>
 </html>
